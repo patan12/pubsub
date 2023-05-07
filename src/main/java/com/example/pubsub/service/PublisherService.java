@@ -6,8 +6,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -44,11 +46,23 @@ public class PublisherService {
         Collectors.toList());
 
     AtomicInteger failCounter = new AtomicInteger(0);
-    fetchAndPublish(allItems, failCounter);
+
+    partition(allItems, 1000).forEach(a -> {
+      long bs = System.currentTimeMillis();
+      fetchAndPublish(a, failCounter);
+      log.info("1000 done time[{}]ms", (System.currentTimeMillis()-bs));
+    });
 
     log.info("Publishing Activity completed {} in [{}]ms", allItems.size(),
         System.currentTimeMillis() - start);
 
+  }
+
+  private static <T> List<List<T>> partition(List<T> list, int size) {
+    return Stream.iterate(0, i -> i <= list.size(), i -> i + size)
+        .map(i -> list.subList(i, Math.min(i + size, list.size())))
+        .filter(Predicate.not(List::isEmpty))
+        .collect(Collectors.toList());
   }
 
   private void fetchAndPublish(List<String> list, AtomicInteger failedCounter) {
@@ -75,7 +89,8 @@ public class PublisherService {
     @Override
     public void run() {
       try {
-        messagePublisherService.publish(objectMapper.readValue(resource.getInputStream(), Object.class));
+        messagePublisherService.publish(
+            objectMapper.readValue(resource.getInputStream(), Object.class));
       } catch (Exception exception) {
         log.error("Failed ", exception);
         failCounter.getAndIncrement();
